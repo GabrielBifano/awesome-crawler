@@ -37,7 +37,7 @@ export default function LiveFeed({ entries }: LiveFeedProps) {
             textAlign: 'center',
           }}
         >
-          Enter an instruction below to start crawling.
+          Send a message to start.
         </div>
       ) : (
         entries.map((entry) => <FeedEntryRow key={entry.id} entry={entry} />)

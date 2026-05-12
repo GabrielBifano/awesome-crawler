@@ -1,7 +1,32 @@
 export type { FeedEntry, FeedTag, ModelName } from '@awesome-crawler/shared';
 
-export interface CrawlRequest {
-  instruction: string;
+export type AppMode = 'chat' | 'crawling';
+
+export interface SessionMeta {
+  sessionId: string;
+  title: string;
+  status: 'active' | 'crawling' | 'paused' | 'completed' | 'error';
+  firstMessage: string;
+  createdAt: string;
+  messageCount: number;
+  lastCrawlUrl?: string;
+}
+
+export type SSEEvent =
+  | { type: 'session_created'; sessionId: string; title: string }
+  | { type: 'thinking'; content: string }
+  | { type: 'feed_entry'; data: import('@awesome-crawler/shared').FeedEntry }
+  | { type: 'crawl_started' }
+  | { type: 'crawl_complete'; crawlContext: string }
+  | { type: 'crawl_interrupted'; lastUrl: string }
+  | { type: 'chat_token'; token: string }
+  | { type: 'chat_done'; fullResponse: string }
+  | { type: 'error'; message: string };
+
+export interface ChatRequest {
+  message: string;
+  userId: string;
+  sessionId?: string;
 }
 
 export type ToolName =

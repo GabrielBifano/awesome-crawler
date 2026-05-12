@@ -1,93 +1,225 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import TopBar from '@/components/TopBar';
 import LiveFeed from '@/components/LiveFeed';
 import InputBar from '@/components/InputBar';
-import type { FeedEntry, ModelName } from '@/lib/types';
+import SideMenu from '@/components/SideMenu';
+import { getUserId } from '@/lib/user-identity';
+import type { FeedEntry, ModelName, AppMode, SessionMeta, SSEEvent } from '@/lib/types';
 
 export default function HomePage() {
   const [entries, setEntries] = useState<FeedEntry[]>([]);
-  const [running, setRunning] = useState(false);
+  const [appMode, setAppMode] = useState<AppMode>('chat');
   const [model, setModel] = useState<ModelName>('sonnet');
+  const [delegating, setDelegating] = useState(false);
+
+  const [userId, setUserId] = useState<string>('');
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<SessionMeta[]>([]);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+
   const abortRef = useRef<AbortController | null>(null);
+  const currentSessionRef = useRef<string | null>(null);
 
-  const handleSubmit = useCallback(async (instruction: string) => {
-    if (running) return;
+  // Init userId on mount
+  useEffect(() => {
+    setUserId(getUserId());
+  }, []);
 
-    setEntries([]);
-    setRunning(true);
-    setModel('sonnet');
+  // Load sessions list when menu opens
+  useEffect(() => {
+    if (!menuOpen || !userId) return;
+    setSessionsLoading(true);
+    fetch(`/api/sessions?userId=${encodeURIComponent(userId)}`)
+      .then((r) => r.json())
+      .then((data: SessionMeta[]) => setSessions(data))
+      .catch(() => {})
+      .finally(() => setSessionsLoading(false));
+  }, [menuOpen, userId]);
 
-    const controller = new AbortController();
-    abortRef.current = controller;
+  const addEntry = useCallback((entry: FeedEntry) => {
+    setEntries((prev) => [...prev, entry]);
+  }, []);
 
-    try {
-      const res = await fetch('/api/crawl', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ instruction }),
-        signal: controller.signal,
-      });
+  const makeLocalEntry = useCallback(
+    (tag: FeedEntry['tag'], message: string): FeedEntry => ({
+      id: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+      tag,
+      message,
+      model: 'sonnet',
+    }),
+    [],
+  );
 
-      if (!res.ok || !res.body) {
-        throw new Error(`HTTP ${res.status}`);
-      }
+  const handleSubmit = useCallback(
+    async (message: string) => {
+      if (appMode === 'crawling' || !userId) return;
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
+      setAppMode('chat');
+      setModel('sonnet');
+      setDelegating(false);
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      const controller = new AbortController();
+      abortRef.current = controller;
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message,
+            userId,
+            sessionId: currentSessionRef.current ?? undefined,
+          }),
+          signal: controller.signal,
+        });
 
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          const raw = line.slice(6).trim();
-          if (raw === '[DONE]') break;
+        if (!res.ok || !res.body) {
+          throw new Error(`HTTP ${res.status}`);
+        }
 
-          try {
-            const entry: FeedEntry = JSON.parse(raw);
-            setEntries((prev) => [...prev, entry]);
-            if (entry.tag === 'haiku') {
-              setModel('haiku');
-            } else if (entry.tag === 'done' || entry.tag === 'think' || entry.tag === 'act') {
-              setModel('sonnet');
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let chatResponseAccum = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const raw = line.slice(6).trim();
+            if (raw === '[DONE]') break;
+
+            let event: SSEEvent;
+            try {
+              event = JSON.parse(raw) as SSEEvent;
+            } catch {
+              continue;
             }
-          } catch {
-            // malformed event — skip
+
+            switch (event.type) {
+              case 'session_created':
+                currentSessionRef.current = event.sessionId;
+                setSessionId(event.sessionId);
+                break;
+
+              case 'thinking':
+                // thinking event handled via feed_entry below
+                break;
+
+              case 'feed_entry':
+                addEntry(event.data);
+                if (event.data.tag === 'haiku') {
+                  setModel('haiku');
+                  setDelegating(true);
+                } else if (event.data.tag !== 'model_thinking') {
+                  setModel('sonnet');
+                  setDelegating(false);
+                }
+                break;
+
+              case 'crawl_started':
+                setAppMode('crawling');
+                break;
+
+              case 'crawl_complete':
+                setAppMode('chat');
+                break;
+
+              case 'crawl_interrupted':
+                setAppMode('chat');
+                break;
+
+              case 'chat_token':
+                chatResponseAccum += event.token;
+                break;
+
+              case 'chat_done': {
+                if (chatResponseAccum) {
+                  addEntry(makeLocalEntry('done', chatResponseAccum));
+                  chatResponseAccum = '';
+                }
+                break;
+              }
+
+              case 'error':
+                addEntry(makeLocalEntry('error', event.message));
+                setAppMode('chat');
+                break;
+            }
           }
         }
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') return;
+        addEntry(makeLocalEntry('error', err instanceof Error ? err.message : 'Connection error'));
+        setAppMode('chat');
+      } finally {
+        setAppMode('chat');
+        setDelegating(false);
+        abortRef.current = null;
       }
-    } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        // user stopped — already emitted by server
-        return;
-      }
-      setEntries((prev) => [
-        ...prev,
-        {
-          id: crypto.randomUUID(),
-          timestamp: new Date().toISOString(),
-          tag: 'error',
-          message: err instanceof Error ? err.message : 'Connection error',
-          model: 'sonnet',
-        },
-      ]);
-    } finally {
-      setRunning(false);
-      abortRef.current = null;
-    }
-  }, [running]);
+    },
+    [appMode, userId, addEntry, makeLocalEntry],
+  );
 
   const handleStop = useCallback(() => {
     abortRef.current?.abort();
   }, []);
+
+  const handleSelectSession = useCallback(
+    async (sid: string) => {
+      if (!userId) return;
+
+      addEntry(makeLocalEntry('nav', `loading session...`));
+
+      try {
+        const res = await fetch(`/api/sessions/${sid}?userId=${encodeURIComponent(userId)}`);
+        const data = await res.json() as {
+          checkpoints: Array<{
+            checkpoint: {
+              userMessage: string;
+              assistantResponse: string;
+              feedEntries?: FeedEntry[];
+              crawlInterrupted?: boolean;
+              lastCrawlUrl?: string;
+            };
+          }>;
+          lastCrawlUrl?: string;
+        };
+
+        const restored: FeedEntry[] = [];
+        for (const cp of data.checkpoints) {
+          if (cp.checkpoint.feedEntries) {
+            restored.push(...cp.checkpoint.feedEntries);
+          }
+        }
+        restored.push(makeLocalEntry('ok', '─── session loaded ───'));
+
+        if (data.lastCrawlUrl) {
+          restored.push(
+            makeLocalEntry('model_thinking', `previous crawl was paused at ${data.lastCrawlUrl}`),
+          );
+        }
+
+        setEntries(restored);
+        currentSessionRef.current = sid;
+        setSessionId(sid);
+        setAppMode('chat');
+      } catch {
+        addEntry(makeLocalEntry('error', 'Failed to load session'));
+      }
+    },
+    [userId, addEntry, makeLocalEntry],
+  );
 
   return (
     <div
@@ -100,9 +232,22 @@ export default function HomePage() {
         overflow: 'hidden',
       }}
     >
-      <TopBar model={model} running={running} />
+      <SideMenu
+        open={menuOpen}
+        sessions={sessions}
+        currentSessionId={sessionId}
+        loading={sessionsLoading}
+        onClose={() => setMenuOpen(false)}
+        onSelectSession={handleSelectSession}
+      />
+      <TopBar model={model} appMode={appMode} delegating={delegating} />
       <LiveFeed entries={entries} />
-      <InputBar running={running} onSubmit={handleSubmit} onStop={handleStop} />
+      <InputBar
+        appMode={appMode}
+        onSubmit={handleSubmit}
+        onStop={handleStop}
+        onMenuOpen={() => setMenuOpen(true)}
+      />
     </div>
   );
 }

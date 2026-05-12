@@ -6,6 +6,12 @@ import type { FeedEntry } from './types';
 
 export type Emit = (entry: Omit<FeedEntry, 'id' | 'timestamp' | 'model'> & { model?: FeedEntry['model'] }) => void;
 
+export interface CrawlResult {
+  crawlContext: string;
+  lastUrl: string;
+  interrupted: boolean;
+}
+
 const SYSTEM_PROMPT = `You are an autonomous web crawling agent with access to a real Chromium browser via Playwright.
 
 ## Available tools
@@ -173,11 +179,15 @@ const TOOLS: Anthropic.Tool[] = [
 ];
 
 export async function runCrawler(
-  instruction: string,
-  emit: Emit,
+  instructions: string,
+  startUrl: string | undefined,
+  resumeFrom: string | undefined,
   signal: AbortSignal,
-): Promise<void> {
+  onEvent: Emit,
+): Promise<CrawlResult> {
   let browser: Browser | null = null;
+  let lastUrl = '';
+  const contentParts: string[] = [];
 
   try {
     browser = await chromium.launch({ headless: true });
@@ -187,10 +197,23 @@ export async function runCrawler(
       viewport: { width: 1280, height: 800 },
     });
     const page = await context.newPage();
-    const visitedUrls = new Set<string>();
+
+    const initialUrl = resumeFrom ?? startUrl;
+    if (initialUrl) {
+      onEvent({ tag: 'crawl_resumed' as const, message: `resuming from ${initialUrl}` });
+      await page.goto(initialUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+      await stabilize(page);
+      lastUrl = page.url();
+    }
+
+    const fullInstruction = resumeFrom
+      ? `Resume crawling from ${resumeFrom}. Original instructions: ${instructions}`
+      : startUrl
+        ? `Start at ${startUrl}. Instructions: ${instructions}`
+        : instructions;
 
     const messages: Anthropic.MessageParam[] = [
-      { role: 'user', content: instruction },
+      { role: 'user', content: fullInstruction },
     ];
 
     let iterations = 0;
@@ -199,7 +222,7 @@ export async function runCrawler(
     while (iterations < MAX_ITERATIONS && !signal.aborted) {
       iterations++;
 
-      emit({ tag: 'think', message: 'Planning next action...' });
+      onEvent({ tag: 'think', message: 'Planning next action...' });
 
       const response = await client.messages.create({
         model: SONNET,
@@ -209,26 +232,24 @@ export async function runCrawler(
         messages,
       });
 
-      // Append assistant turn
       messages.push({ role: 'assistant', content: response.content });
 
-      // Check stop reason
       if (response.stop_reason === 'end_turn') {
         const textBlock = response.content.find((b) => b.type === 'text');
         if (textBlock && textBlock.type === 'text') {
-          emit({ tag: 'done', message: textBlock.text });
+          onEvent({ tag: 'done', message: textBlock.text });
+          contentParts.push(textBlock.text);
         } else {
-          emit({ tag: 'done', message: 'Task finished.' });
+          onEvent({ tag: 'done', message: 'Task finished.' });
         }
         break;
       }
 
       if (response.stop_reason !== 'tool_use') {
-        emit({ tag: 'error', message: `Unexpected stop reason: ${response.stop_reason}` });
+        onEvent({ tag: 'error', message: `Unexpected stop reason: ${response.stop_reason}` });
         break;
       }
 
-      // Process tool calls
       const toolResults: Anthropic.ToolResultBlockParam[] = [];
 
       for (const block of response.content) {
@@ -244,25 +265,25 @@ export async function runCrawler(
           switch (toolName) {
             case 'navigate': {
               const url = toolInput.url as string;
-              emit({ tag: 'nav', message: `Navigating to ${url}` });
-              visitedUrls.add(url);
+              onEvent({ tag: 'nav', message: `Navigating to ${url}` });
               await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
               await stabilize(page);
-              const finalUrl = page.url();
-              if (finalUrl !== url) {
-                emit({ tag: 'ok', message: `Redirected to ${finalUrl}` });
+              lastUrl = page.url();
+              if (lastUrl !== url) {
+                onEvent({ tag: 'ok', message: `Redirected to ${lastUrl}` });
               } else {
-                emit({ tag: 'ok', message: `Loaded ${finalUrl}` });
+                onEvent({ tag: 'ok', message: `Loaded ${lastUrl}` });
               }
-              toolResult = `Navigated to ${finalUrl}`;
+              toolResult = `Navigated to ${lastUrl}`;
               break;
             }
 
             case 'click': {
               const selector = toolInput.selector as string;
-              emit({ tag: 'act', message: `Clicking ${selector}` });
+              onEvent({ tag: 'act', message: `Clicking ${selector}` });
               await page.click(selector, { timeout: 10_000 });
               await stabilize(page);
+              lastUrl = page.url();
               toolResult = `Clicked ${selector}`;
               break;
             }
@@ -270,7 +291,7 @@ export async function runCrawler(
             case 'type': {
               const selector = toolInput.selector as string;
               const text = toolInput.text as string;
-              emit({ tag: 'act', message: `Typing into ${selector}` });
+              onEvent({ tag: 'act', message: `Typing into ${selector}` });
               await page.fill(selector, text, { timeout: 10_000 });
               toolResult = `Typed into ${selector}`;
               break;
@@ -279,7 +300,7 @@ export async function runCrawler(
             case 'scroll': {
               const direction = toolInput.direction as string;
               const amount = toolInput.amount as number;
-              emit({ tag: 'act', message: `Scrolling ${direction} ${amount}px` });
+              onEvent({ tag: 'act', message: `Scrolling ${direction} ${amount}px` });
               const x = direction === 'left' ? -amount : direction === 'right' ? amount : 0;
               const y = direction === 'up' ? -amount : direction === 'down' ? amount : 0;
               await page.evaluate(`window.scrollBy(${x}, ${y})`);
@@ -288,7 +309,7 @@ export async function runCrawler(
             }
 
             case 'screenshot': {
-              emit({ tag: 'act', message: 'Taking screenshot' });
+              onEvent({ tag: 'act', message: 'Taking screenshot' });
               const buf = await page.screenshot({ type: 'jpeg', quality: 70, fullPage: false });
               const b64 = buf.toString('base64');
               toolResult = [
@@ -301,17 +322,18 @@ export async function runCrawler(
             }
 
             case 'get_html': {
-              emit({ tag: 'extract', message: 'Extracting page content' });
+              onEvent({ tag: 'extract', message: 'Extracting page content' });
               const html = await page.content();
               const url = page.url();
               const md = extractContent(html, url);
+              contentParts.push(md);
               toolResult = md;
               break;
             }
 
             case 'get_raw_html': {
               const selector = toolInput.selector as string | undefined;
-              emit({ tag: 'extract', message: selector ? `Getting HTML for ${selector}` : 'Getting structural HTML' });
+              onEvent({ tag: 'extract', message: selector ? `Getting HTML for ${selector}` : 'Getting structural HTML' });
               let html: string;
               if (selector) {
                 const el = await page.$(selector);
@@ -325,7 +347,7 @@ export async function runCrawler(
 
             case 'evaluate': {
               const js = toolInput.js as string;
-              emit({ tag: 'act', message: `Evaluating JS: ${js.slice(0, 60)}` });
+              onEvent({ tag: 'act', message: `Evaluating JS: ${js.slice(0, 60)}` });
               const result = await page.evaluate(js);
               toolResult = JSON.stringify(result);
               break;
@@ -333,7 +355,7 @@ export async function runCrawler(
 
             case 'wait': {
               const ms = toolInput.ms as number;
-              emit({ tag: 'act', message: `Waiting ${ms}ms` });
+              onEvent({ tag: 'act', message: `Waiting ${ms}ms` });
               await page.waitForTimeout(ms);
               toolResult = `Waited ${ms}ms`;
               break;
@@ -342,29 +364,30 @@ export async function runCrawler(
             case 'wait_for_selector': {
               const selector = toolInput.selector as string;
               const timeout = (toolInput.timeout as number) ?? 10_000;
-              emit({ tag: 'act', message: `Waiting for ${selector}` });
+              onEvent({ tag: 'act', message: `Waiting for ${selector}` });
               await page.waitForSelector(selector, { timeout });
               toolResult = `Selector found: ${selector}`;
               break;
             }
 
             case 'go_back': {
-              emit({ tag: 'nav', message: 'Going back' });
+              onEvent({ tag: 'nav', message: 'Going back' });
               await page.goBack({ timeout: 10_000 });
               await stabilize(page);
-              toolResult = `Now at ${page.url()}`;
+              lastUrl = page.url();
+              toolResult = `Now at ${lastUrl}`;
               break;
             }
 
             case 'get_url': {
-              const url = page.url();
-              toolResult = url;
+              lastUrl = page.url();
+              toolResult = lastUrl;
               break;
             }
 
             case 'print': {
               const message = toolInput.message as string;
-              emit({ tag: 'act', message });
+              onEvent({ tag: 'act', message });
               toolResult = 'Message displayed to user';
               break;
             }
@@ -372,15 +395,17 @@ export async function runCrawler(
             case 'delegate_to_haiku': {
               const task = toolInput.task as string;
               const context = toolInput.context as string;
-              emit({ tag: 'haiku', message: `Delegating to Haiku: ${task.slice(0, 80)}` });
+              onEvent({ tag: 'haiku', message: `Delegating to Haiku: ${task.slice(0, 80)}` });
               const result = await callHaiku(task, context);
+              contentParts.push(result);
               toolResult = result;
               break;
             }
 
             case 'task_complete': {
               const summary = toolInput.summary as string;
-              emit({ tag: 'done', message: summary });
+              onEvent({ tag: 'done', message: summary });
+              contentParts.push(summary);
               isDone = true;
               toolResult = 'Task marked complete';
               break;
@@ -391,7 +416,7 @@ export async function runCrawler(
           }
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          emit({ tag: 'error', message: `${toolName} failed: ${msg}` });
+          onEvent({ tag: 'error', message: `${toolName} failed: ${msg}` });
           toolResult = `Error: ${msg}`;
         }
 
@@ -405,7 +430,7 @@ export async function runCrawler(
 
         if (isDone) {
           messages.push({ role: 'user', content: toolResults });
-          return;
+          return { crawlContext: contentParts.join('\n\n'), lastUrl, interrupted: false };
         }
       }
 
@@ -415,10 +440,15 @@ export async function runCrawler(
     }
 
     if (signal.aborted) {
-      emit({ tag: 'error', message: 'Crawl stopped by user' });
-    } else if (iterations >= MAX_ITERATIONS) {
-      emit({ tag: 'error', message: `Reached max iterations (${MAX_ITERATIONS})` });
+      onEvent({ tag: 'error', message: 'Crawl stopped by user' });
+      return { crawlContext: contentParts.join('\n\n'), lastUrl, interrupted: true };
     }
+
+    if (iterations >= MAX_ITERATIONS) {
+      onEvent({ tag: 'error', message: `Reached max iterations (${MAX_ITERATIONS})` });
+    }
+
+    return { crawlContext: contentParts.join('\n\n'), lastUrl, interrupted: false };
   } finally {
     if (browser) {
       await browser.close().catch(() => {});

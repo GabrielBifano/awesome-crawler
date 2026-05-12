@@ -6,7 +6,9 @@ export type FeedTag =
   | 'extract'
   | 'error'
   | 'haiku'
-  | 'done';
+  | 'done'
+  | 'model_thinking'
+  | 'crawl_resumed';
 
 export type ModelName = 'sonnet' | 'haiku';
 

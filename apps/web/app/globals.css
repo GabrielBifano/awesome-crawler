@@ -50,14 +50,16 @@ body::before {
 }
 
 /* Tag colors */
-.tag-nav     { color: var(--purple); }
-.tag-ok      { color: var(--emerald); }
-.tag-think   { color: var(--amber); }
-.tag-act     { color: var(--purple); }
-.tag-extract { color: var(--teal); }
-.tag-error   { color: var(--red); }
-.tag-haiku   { color: var(--teal); }
-.tag-done    { color: var(--emerald); }
+.tag-nav           { color: var(--purple); }
+.tag-ok            { color: var(--emerald); }
+.tag-think         { color: var(--amber); }
+.tag-act           { color: var(--purple); }
+.tag-extract       { color: var(--teal); }
+.tag-error         { color: var(--red); }
+.tag-haiku         { color: var(--teal); }
+.tag-done          { color: var(--emerald); }
+.tag-model_thinking { color: var(--amber); }
+.tag-crawl_resumed  { color: var(--teal); }
 
 /* Pulsing dot */
 @keyframes pulse-dot {

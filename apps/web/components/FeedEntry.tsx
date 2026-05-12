@@ -11,6 +11,8 @@ const TAG_LABELS: Record<FeedEntry['tag'], string> = {
   error: 'error',
   haiku: 'haiku',
   done: 'done',
+  model_thinking: 'model',
+  crawl_resumed: 'resume',
 };
 
 function formatTime(iso: string): string {
@@ -20,12 +22,12 @@ function formatTime(iso: string): string {
 
 export default function FeedEntryRow({ entry }: { entry: FeedEntry }) {
   return (
-    <div className={`feed-entry mono flex gap-3 text-xs leading-relaxed py-0.5 group`}>
+    <div className="feed-entry mono flex gap-3 text-xs leading-relaxed py-0.5 group">
       <span style={{ color: 'rgba(255,255,255,0.2)', minWidth: '6ch', userSelect: 'none' }}>
         {formatTime(entry.timestamp)}
       </span>
       <span className={`tag-${entry.tag} font-medium`} style={{ minWidth: '8ch' }}>
-        [{TAG_LABELS[entry.tag]}]
+        [{TAG_LABELS[entry.tag] ?? entry.tag}]
       </span>
       <span
         style={{
@@ -33,6 +35,10 @@ export default function FeedEntryRow({ entry }: { entry: FeedEntry }) {
             ? 'var(--red)'
             : entry.tag === 'done'
             ? 'var(--emerald)'
+            : entry.tag === 'model_thinking'
+            ? 'var(--amber)'
+            : entry.tag === 'crawl_resumed'
+            ? 'var(--teal)'
             : 'rgba(255,255,255,0.75)',
           wordBreak: 'break-word',
           flex: 1,

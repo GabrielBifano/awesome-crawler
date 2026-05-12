@@ -1,21 +1,24 @@
 'use client';
 
 import { useState, useRef, type FormEvent } from 'react';
+import type { AppMode } from '@/lib/types';
 
 interface InputBarProps {
-  running: boolean;
-  onSubmit: (instruction: string) => void;
+  appMode: AppMode;
+  onSubmit: (message: string) => void;
   onStop: () => void;
+  onMenuOpen: () => void;
 }
 
-export default function InputBar({ running, onSubmit, onStop }: InputBarProps) {
+export default function InputBar({ appMode, onSubmit, onStop, onMenuOpen }: InputBarProps) {
   const [value, setValue] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const crawling = appMode === 'crawling';
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     const trimmed = value.trim();
-    if (!trimmed || running) return;
+    if (!trimmed || crawling) return;
     onSubmit(trimmed);
     setValue('');
   }
@@ -29,7 +32,7 @@ export default function InputBar({ running, onSubmit, onStop }: InputBarProps) {
         borderTop: '1px solid var(--border)',
       }}
     >
-      {/* Atmospheric glow behind input bar */}
+      {/* Atmospheric glow */}
       <div
         style={{
           position: 'absolute',
@@ -57,12 +60,38 @@ export default function InputBar({ running, onSubmit, onStop }: InputBarProps) {
           position: 'relative',
         }}
       >
+        {/* Menu button */}
+        <button
+          type="button"
+          onClick={onMenuOpen}
+          title="History"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '3px',
+            width: 28,
+            height: 28,
+            borderRadius: 6,
+            background: 'transparent',
+            border: '1px solid rgba(255,255,255,0.08)',
+            cursor: 'pointer',
+            flexShrink: 0,
+            padding: 0,
+          }}
+        >
+          {[0, 1, 2].map((i) => (
+            <div key={i} style={{ width: 12, height: 1.5, background: 'rgba(255,255,255,0.4)', borderRadius: 1 }} />
+          ))}
+        </button>
+
         <input
           ref={inputRef}
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          disabled={running}
-          placeholder="Enter crawl instructions..."
+          disabled={crawling}
+          placeholder="Send a message..."
           className="mono"
           style={{
             flex: 1,
@@ -77,11 +106,11 @@ export default function InputBar({ running, onSubmit, onStop }: InputBarProps) {
           spellCheck={false}
         />
 
-        {running && (
+        {crawling && (
           <button
             type="button"
             onClick={onStop}
-            title="Stop crawl"
+            title="Stop crawler"
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -95,29 +124,28 @@ export default function InputBar({ running, onSubmit, onStop }: InputBarProps) {
               flexShrink: 0,
             }}
           >
-            {/* Stop square icon */}
             <div style={{ width: 10, height: 10, background: 'var(--red)', borderRadius: 1 }} />
           </button>
         )}
 
         <button
           type="submit"
-          disabled={running || !value.trim()}
+          disabled={crawling || !value.trim()}
           style={{
             padding: '6px 14px',
             borderRadius: 6,
-            background: running || !value.trim() ? 'rgba(139,92,246,0.1)' : 'rgba(139,92,246,0.2)',
+            background: crawling || !value.trim() ? 'rgba(139,92,246,0.1)' : 'rgba(139,92,246,0.2)',
             border: '1px solid rgba(139,92,246,0.3)',
-            color: running || !value.trim() ? 'rgba(139,92,246,0.4)' : 'var(--purple)',
+            color: crawling || !value.trim() ? 'rgba(139,92,246,0.4)' : 'var(--purple)',
             fontSize: 12,
             fontWeight: 500,
-            cursor: running || !value.trim() ? 'not-allowed' : 'pointer',
+            cursor: crawling || !value.trim() ? 'not-allowed' : 'pointer',
             flexShrink: 0,
             transition: 'all 0.15s',
           }}
           className="mono"
         >
-          run
+          send
         </button>
       </form>
     </div>

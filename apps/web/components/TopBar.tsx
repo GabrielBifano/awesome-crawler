@@ -1,13 +1,41 @@
 'use client';
 
-import type { ModelName } from '@/lib/types';
+import type { ModelName, AppMode } from '@/lib/types';
 
 interface TopBarProps {
   model: ModelName;
-  running: boolean;
+  appMode: AppMode;
+  delegating: boolean;
 }
 
-export default function TopBar({ model, running }: TopBarProps) {
+export default function TopBar({ model, appMode, delegating }: TopBarProps) {
+  const crawling = appMode === 'crawling';
+  const activeModel: ModelName = delegating ? 'haiku' : model;
+
+  let badgeLabel: string;
+  let badgeColor: string;
+  let badgeBg: string;
+  let badgeBorder: string;
+
+  if (delegating) {
+    badgeLabel = 'delegating · haiku';
+    badgeColor = 'var(--teal)';
+    badgeBg = 'rgba(20,184,166,0.15)';
+    badgeBorder = 'rgba(20,184,166,0.3)';
+  } else if (crawling) {
+    badgeLabel = 'crawling · sonnet';
+    badgeColor = 'var(--purple)';
+    badgeBg = 'rgba(139,92,246,0.15)';
+    badgeBorder = 'rgba(139,92,246,0.3)';
+  } else {
+    badgeLabel = 'chat · sonnet';
+    badgeColor = 'var(--purple)';
+    badgeBg = 'rgba(139,92,246,0.15)';
+    badgeBorder = 'rgba(139,92,246,0.3)';
+  }
+
+  const isActive = crawling || delegating;
+
   return (
     <div
       style={{
@@ -41,38 +69,38 @@ export default function TopBar({ model, running }: TopBarProps) {
         </span>
       </div>
 
-      {/* Right: model badge + live indicator */}
+      {/* Right: badge + live indicator */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
         <span
-          className="mono"
+          className={`mono${crawling ? ' pulse' : ''}`}
           style={{
             fontSize: 11,
             padding: '2px 8px',
             borderRadius: 4,
-            background: model === 'sonnet' ? 'rgba(139,92,246,0.15)' : 'rgba(20,184,166,0.15)',
-            color: model === 'sonnet' ? 'var(--purple)' : 'var(--teal)',
-            border: `1px solid ${model === 'sonnet' ? 'rgba(139,92,246,0.3)' : 'rgba(20,184,166,0.3)'}`,
+            background: badgeBg,
+            color: badgeColor,
+            border: `1px solid ${badgeBorder}`,
           }}
         >
-          {model}
+          {badgeLabel}
         </span>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           <div
-            className={running ? 'pulse' : ''}
+            className={isActive ? 'pulse' : ''}
             style={{
               width: 7,
               height: 7,
               borderRadius: '50%',
-              background: running ? 'var(--emerald)' : 'rgba(255,255,255,0.2)',
-              boxShadow: running ? '0 0 6px var(--emerald)' : 'none',
+              background: isActive ? 'var(--emerald)' : 'rgba(255,255,255,0.2)',
+              boxShadow: isActive ? '0 0 6px var(--emerald)' : 'none',
             }}
           />
           <span
             className="mono"
-            style={{ fontSize: 11, color: running ? 'var(--emerald)' : 'rgba(255,255,255,0.3)' }}
+            style={{ fontSize: 11, color: isActive ? 'var(--emerald)' : 'rgba(255,255,255,0.3)' }}
           >
-            {running ? 'running' : 'idle'}
+            {isActive ? 'active' : 'ready'}
           </span>
         </div>
       </div>
