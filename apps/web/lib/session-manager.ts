@@ -56,6 +56,13 @@ export async function createSession(
   return { sessionId, title };
 }
 
+export async function deleteSession(userId: string, sessionId: string): Promise<void> {
+  await Promise.all([
+    getSupabase().from('store').delete().eq('prefix', userId).eq('key', sessionId),
+    getSupabase().from('checkpoints').delete().eq('thread_id', sessionId).eq('checkpoint_ns', userId),
+  ]);
+}
+
 export async function updateSession(
   userId: string,
   sessionId: string,

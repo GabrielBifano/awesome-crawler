@@ -62,6 +62,8 @@ export default function HomePage() {
       setModel('sonnet');
       setDelegating(false);
 
+      addEntry(makeLocalEntry('user', message));
+
       const controller = new AbortController();
       abortRef.current = controller;
 
@@ -221,6 +223,27 @@ export default function HomePage() {
     [userId, addEntry, makeLocalEntry],
   );
 
+  const handleDeleteSession = useCallback(
+    async (sid: string) => {
+      if (!userId) return;
+      setSessions((prev) => prev.filter((s) => s.sessionId !== sid));
+      if (currentSessionRef.current === sid) {
+        currentSessionRef.current = null;
+        setSessionId(null);
+        setEntries([]);
+      }
+      await fetch(`/api/sessions/${sid}?userId=${encodeURIComponent(userId)}`, { method: 'DELETE' });
+    },
+    [userId],
+  );
+
+  const handleNewChat = useCallback(() => {
+    currentSessionRef.current = null;
+    setSessionId(null);
+    setEntries([]);
+    setAppMode('chat');
+  }, []);
+
   return (
     <div
       style={{
@@ -239,14 +262,17 @@ export default function HomePage() {
         loading={sessionsLoading}
         onClose={() => setMenuOpen(false)}
         onSelectSession={handleSelectSession}
+        onDeleteSession={handleDeleteSession}
+        onNewChat={handleNewChat}
       />
       <TopBar model={model} appMode={appMode} delegating={delegating} />
       <LiveFeed entries={entries} />
       <InputBar
         appMode={appMode}
+        menuOpen={menuOpen}
         onSubmit={handleSubmit}
         onStop={handleStop}
-        onMenuOpen={() => setMenuOpen(true)}
+        onMenuToggle={() => setMenuOpen((v) => !v)}
       />
     </div>
   );

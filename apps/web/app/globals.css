@@ -70,6 +70,22 @@ body::before {
   animation: pulse-dot 1.5s ease-in-out infinite;
 }
 
+@keyframes pulse-dot-subtle {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.75; transform: scale(0.93); }
+}
+.pulse-subtle {
+  animation: pulse-dot-subtle 2s ease-in-out infinite;
+}
+
+@keyframes pulse-color-purple {
+  0%, 100% { color: var(--purple); }
+  50%       { color: rgba(255,255,255,0.85); }
+}
+.pulse-color-purple {
+  animation: pulse-color-purple 2s ease-in-out infinite;
+}
+
 /* Fade-in for new feed entries */
 @keyframes fade-in {
   from { opacity: 0; transform: translateY(4px); }

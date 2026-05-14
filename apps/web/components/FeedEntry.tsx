@@ -11,6 +11,7 @@ const TAG_LABELS: Record<FeedEntry['tag'], string> = {
   error: 'error',
   haiku: 'haiku',
   done: 'done',
+  user: 'you',
   model_thinking: 'model',
   crawl_resumed: 'resume',
 };
@@ -35,6 +36,8 @@ export default function FeedEntryRow({ entry }: { entry: FeedEntry }) {
             ? 'var(--red)'
             : entry.tag === 'done'
             ? 'var(--emerald)'
+            : entry.tag === 'user'
+            ? 'var(--purple)'
             : entry.tag === 'model_thinking'
             ? 'var(--amber)'
             : entry.tag === 'crawl_resumed'

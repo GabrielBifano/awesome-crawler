@@ -65,20 +65,20 @@ export default function TopBar({ model, appMode, delegating }: TopBarProps) {
           className="mono"
           style={{ fontSize: 13, fontWeight: 500, color: 'rgba(255,255,255,0.7)', letterSpacing: '0.05em' }}
         >
-          agentic crawler
+          awesome crawler uwu
         </span>
       </div>
 
       {/* Right: badge + live indicator */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
         <span
-          className={`mono${crawling ? ' pulse' : ''}`}
+          className={`mono${crawling ? ' pulse-color-purple' : ''}`}
           style={{
             fontSize: 11,
             padding: '2px 8px',
             borderRadius: 4,
             background: badgeBg,
-            color: badgeColor,
+            color: crawling ? undefined : badgeColor,
             border: `1px solid ${badgeBorder}`,
           }}
         >
@@ -87,7 +87,7 @@ export default function TopBar({ model, appMode, delegating }: TopBarProps) {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           <div
-            className={isActive ? 'pulse' : ''}
+            className={isActive ? 'pulse-subtle' : ''}
             style={{
               width: 7,
               height: 7,

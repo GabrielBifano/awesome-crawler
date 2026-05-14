@@ -7,6 +7,7 @@ export type FeedTag =
   | 'error'
   | 'haiku'
   | 'done'
+  | 'user'
   | 'model_thinking'
   | 'crawl_resumed';
 

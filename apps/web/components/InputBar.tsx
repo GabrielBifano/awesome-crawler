@@ -5,12 +5,13 @@ import type { AppMode } from '@/lib/types';
 
 interface InputBarProps {
   appMode: AppMode;
+  menuOpen: boolean;
   onSubmit: (message: string) => void;
   onStop: () => void;
-  onMenuOpen: () => void;
+  onMenuToggle: () => void;
 }
 
-export default function InputBar({ appMode, onSubmit, onStop, onMenuOpen }: InputBarProps) {
+export default function InputBar({ appMode, menuOpen, onSubmit, onStop, onMenuToggle }: InputBarProps) {
   const [value, setValue] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const crawling = appMode === 'crawling';
@@ -63,8 +64,8 @@ export default function InputBar({ appMode, onSubmit, onStop, onMenuOpen }: Inpu
         {/* Menu button */}
         <button
           type="button"
-          onClick={onMenuOpen}
-          title="History"
+          onClick={onMenuToggle}
+          title={menuOpen ? 'Close history' : 'History'}
           style={{
             display: 'flex',
             flexDirection: 'column',
@@ -74,15 +75,16 @@ export default function InputBar({ appMode, onSubmit, onStop, onMenuOpen }: Inpu
             width: 28,
             height: 28,
             borderRadius: 6,
-            background: 'transparent',
-            border: '1px solid rgba(255,255,255,0.08)',
+            background: menuOpen ? 'rgba(139,92,246,0.15)' : 'transparent',
+            border: menuOpen ? '1px solid rgba(139,92,246,0.3)' : '1px solid rgba(255,255,255,0.08)',
             cursor: 'pointer',
             flexShrink: 0,
             padding: 0,
+            transition: 'background 0.15s, border 0.15s',
           }}
         >
           {[0, 1, 2].map((i) => (
-            <div key={i} style={{ width: 12, height: 1.5, background: 'rgba(255,255,255,0.4)', borderRadius: 1 }} />
+            <div key={i} style={{ width: 12, height: 1.5, background: menuOpen ? 'var(--purple)' : 'rgba(255,255,255,0.4)', borderRadius: 1, transition: 'background 0.15s' }} />
           ))}
         </button>
 

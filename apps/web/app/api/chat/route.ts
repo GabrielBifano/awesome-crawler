@@ -155,6 +155,9 @@ start a fresh crawl, or respond from existing context.
             { role: 'user', content: message },
           ];
 
+          // User message entry — saved for checkpoint restore; not emitted (client already added it)
+          collectedFeedEntries.push(makeFeedEntry({ tag: 'user', message }));
+
           // 4. Model thinking indicator
           send({ type: 'thinking', content: 'reading your message...' });
           const thinkingEntry = makeFeedEntry({ tag: 'model_thinking', message: 'reading your message...' });
@@ -284,6 +287,11 @@ start a fresh crawl, or respond from existing context.
           }
 
           send({ type: 'chat_done', fullResponse: assistantResponse });
+
+          // Done entry — saved for checkpoint restore; not emitted (client builds it from chat_token accumulation)
+          if (assistantResponse) {
+            collectedFeedEntries.push(makeFeedEntry({ tag: 'done', message: assistantResponse }));
+          }
 
           // 7. Save checkpoint
           await appendCheckpoint(
